@@ -3,7 +3,9 @@ export const SHAPES = ['circle', 'square', 'triangle', 'hexagon'];
 export const SYMBOLS = ['+', '?', '%', '@'];
 
 export const UNLOCK_GOAL = 3; // Base unlock goal
-export const INITIAL_SANITY = 5;
+export const MAX_SANITY = 300;        // Sanity meter scale
+export const SANITY_DRAIN_RATE = 2;   // Points lost per second (passive burn)
+export const SANITY_WRONG_HIT = 40;   // Chunk lost on a wrong/partial hit
 export const MAX_LEVELS = 4;
 
 export const GAME_WIDTH = 1200;

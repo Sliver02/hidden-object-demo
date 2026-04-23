@@ -12,9 +12,12 @@ export class TargetManager {
     selectNewTargets(pool, targetCount, totalGoal) {
         this.targets = [];
         
-        // 1. Group pool by type
+        // 1. Group pool by type and shuffle each bucket for randomness
         const buckets = { shape: [], color: [], symbol: [] };
         pool.forEach(c => buckets[c.type].push(c.value));
+        Object.keys(buckets).forEach(type => {
+            Phaser.Utils.Array.Shuffle(buckets[type]);
+        });
         
         // 2. Prepare targets and distribute goal
         let remainingGoal = totalGoal;
@@ -32,20 +35,27 @@ export class TargetManager {
         // Each target needs 2 unique types.
         const typeNames = ['shape', 'color', 'symbol'];
         
-        // We do passes to give each target a unique type from the pool
+        // Two passes to give each target 2 characteristics
         for (let pass = 0; pass < 2; pass++) {
             this.targets.forEach(target => {
-                const shuffledTypes = Phaser.Utils.Array.Shuffle([...typeNames]);
-                for (const type of shuffledTypes) {
-                    if (buckets[type].length > 0 && !target.attributes[type]) {
-                        target.attributes[type] = buckets[type].pop();
-                        break; 
-                    }
+                // To ensure variety and avoid exhaustion of types,
+                // we should prefer types that have the MOST items remaining in their buckets,
+                // excluding types this target already has.
+                
+                const availableTypes = typeNames
+                    .filter(type => !target.attributes[type] && buckets[type].length > 0)
+                    .sort((a, b) => buckets[b].length - buckets[a].length); // Descending abundance
+
+                if (availableTypes.length > 0) {
+                    const bestType = availableTypes[0];
+                    target.attributes[bestType] = buckets[bestType].pop();
                 }
             });
         }
 
-        // 4. Final sweep: Ensure all items in the pool are used if possible
+        // 4. Final sweep: If any target still has < 2 (should be rare with above logic),
+        // try to give it ANYTHING remaining, even if it's a type it already has (as a fallback)
+        // or just use whatever is left in buckets.
         this.targets.forEach(target => {
             if (Object.keys(target.attributes).length < 2) {
                 for (const type of typeNames) {

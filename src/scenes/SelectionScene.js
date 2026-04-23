@@ -31,9 +31,21 @@ export class SelectionScene extends Phaser.Scene {
         COLORS.forEach(v => allPossible.push({ type: 'color', value: v }));
         SYMBOLS.forEach(v => allPossible.push({ type: 'symbol', value: v }));
 
-        // 1. Remove already selected/in-game characteristics
+        // Count how many of each type are already in the pool
+        // This prevents any type from having more entries than there are targets,
+        // which would make the distribution mathematically impossible.
+        const existingTypeCounts = { shape: 0, color: 0, symbol: 0 };
+        runManager.selectedCharacteristics.forEach(c => existingTypeCounts[c.type]++);
+
+        // 1. Remove already selected/in-game characteristics AND any type that's already
+        // at the cap (currentLevel items). Adding one more would mean more of that type
+        // than there are targets, guaranteeing at least one target can't get 2 attributes.
         const available = allPossible.filter(p => {
-            return !runManager.selectedCharacteristics.some(s => s.type === p.type && s.value === p.value);
+            const notAlreadySelected = !runManager.selectedCharacteristics.some(
+                s => s.type === p.type && s.value === p.value
+            );
+            const typeNotAtCap = existingTypeCounts[p.type] < runManager.currentLevel;
+            return notAlreadySelected && typeNotAtCap;
         });
 
         Phaser.Utils.Array.Shuffle(available);

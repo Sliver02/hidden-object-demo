@@ -1,4 +1,4 @@
-import { INITIAL_SANITY, UNLOCK_GOAL, MAX_LEVELS } from '../constants.js';
+import { MAX_SANITY, UNLOCK_GOAL, MAX_LEVELS } from '../constants.js';
 
 export class RunManager {
     constructor() {
@@ -6,7 +6,7 @@ export class RunManager {
     }
 
     reset() {
-        this.sanity = INITIAL_SANITY;
+        this.sanity = MAX_SANITY;
         this.currentLevel = 1;
         this.selectedCharacteristics = [];
         this.totalScore = 0;
@@ -35,6 +35,10 @@ export class RunManager {
     takeDamage(amount) {
         this.sanity = Math.max(0, this.sanity - amount);
         return this.sanity <= 0;
+    }
+
+    getSanityPercent() {
+        return this.sanity / MAX_SANITY;
     }
 
     addScore(points) {
