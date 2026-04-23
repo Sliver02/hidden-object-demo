@@ -395,14 +395,24 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(1001);
 
+    if (isVictory) {
+      this.add
+        .text(GAME_WIDTH / 2, 310, `TOTAL SCORE: ${runManager.totalScore}`, {
+          font: "bold 24px Arial",
+          fill: "#ffffff",
+        })
+        .setOrigin(0.5)
+        .setDepth(1001);
+    }
+
     const btnBg = this.add.graphics().setDepth(1001);
     btnBg.fillStyle(0x2f3542, 1);
-    btnBg.fillRoundedRect(GAME_WIDTH / 2 - 100, 350, 200, 60, 10);
+    btnBg.fillRoundedRect(GAME_WIDTH / 2 - 100, 390, 200, 60, 10);
     btnBg.lineStyle(2, 0xffffff, 0.5);
-    btnBg.strokeRoundedRect(GAME_WIDTH / 2 - 100, 350, 200, 60, 10);
+    btnBg.strokeRoundedRect(GAME_WIDTH / 2 - 100, 390, 200, 60, 10);
 
     this.add
-      .text(GAME_WIDTH / 2, 380, isVictory ? "PLAY AGAIN" : "RETRY", {
+      .text(GAME_WIDTH / 2, 420, isVictory ? "PLAY AGAIN" : "RETRY", {
         font: "bold 24px Arial",
         fill: "#ffffff",
       })
@@ -411,7 +421,7 @@ export class GameScene extends Phaser.Scene {
 
     const retryHitArea = new Phaser.Geom.Rectangle(
       GAME_WIDTH / 2 - 100,
-      350,
+      390,
       200,
       60,
     );
