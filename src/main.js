@@ -60,14 +60,14 @@ class ExampleScene extends Phaser.Scene {
 
     createUIPanels() {
         const leftPanel = this.add.graphics();
-        leftPanel.setDepth(100);
+        leftPanel.setDepth(90);
         leftPanel.fillStyle(0x1a1a1a, 1);
         leftPanel.fillRect(0, 0, 200, 600);
         leftPanel.lineStyle(2, 0xffffff, 0.2);
         leftPanel.strokeRect(198, 0, 2, 600);
 
         const rightPanel = this.add.graphics();
-        rightPanel.setDepth(100);
+        rightPanel.setDepth(90);
         rightPanel.fillStyle(0x1a1a1a, 1);
         rightPanel.fillRect(1000, 0, 200, 600);
         rightPanel.lineStyle(2, 0xffffff, 0.2);
