@@ -35,6 +35,21 @@ export class GameScene extends Phaser.Scene {
 
         generateGameTextures(this);
         
+        // Create Scaffolds
+        this.obstacles = runManager.getLevelObstacles();
+        this.scaffoldBodies = [];
+        const scaffoldGraphics = this.add.graphics();
+        scaffoldGraphics.fillStyle(0x333333, 1); // Lighter than #111111 background
+
+        this.obstacles.forEach(obs => {
+            const body = this.matter.add.rectangle(obs.x, obs.y, obs.width, obs.height, { 
+                isStatic: true,
+                label: 'scaffold'
+            });
+            this.scaffoldBodies.push(body);
+            scaffoldGraphics.fillRect(obs.x - obs.width/2, obs.y - obs.height/2, obs.width, obs.height);
+        });
+
         // Initialize Managers
         this.targetManager = new TargetManager(this);
         this.scoreManager = new ScoreManager(this, 1100, 150);
@@ -44,7 +59,25 @@ export class GameScene extends Phaser.Scene {
         // Target Logic: use runManager pool
         this.targetManager.selectNewTargets(runManager.selectedCharacteristics, runManager.currentLevel, this.unlockGoal);
         this.targetManager.createUI(200);
-        this.spawnManager.spawnItems(this.targetManager.targets, this.unlockGoal, runManager.currentLevel);
+        this.spawnManager.spawnItems(this.targetManager.targets, this.unlockGoal, runManager.currentLevel, this.obstacles);
+
+        // One-Way Logic
+        this.matter.world.on('collisionactive', (event) => {
+            event.pairs.forEach(pair => {
+                const { bodyA, bodyB } = pair;
+                const scaffold = bodyA.label === 'scaffold' ? bodyA : (bodyB.label === 'scaffold' ? bodyB : null);
+                const item = bodyA.label === 'scaffold' ? bodyB : (bodyB.label === 'scaffold' ? bodyA : null);
+                
+                if (scaffold && item && item.gameObject) {
+                    // Collision active only if item is moving down and is above the platform
+                    // We allow passing through if item's center is below platform's top minus a small margin
+                    const platformTop = scaffold.position.y - 10; // 10 is half of 20 height
+                    if (item.position.y > platformTop) {
+                        pair.isActive = false;
+                    }
+                }
+            });
+        });
 
         // UI Setup
         this.createUIPanels();

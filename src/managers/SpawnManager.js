@@ -6,7 +6,7 @@ export class SpawnManager {
         this.scene = scene;
     }
 
-    spawnItems(targets, unlockGoal, level) {
+    spawnItems(targets, unlockGoal, level, obstacles = []) {
         let itemsToSpawn = [];
         
         // Density for 60px items: 30, 60, 100, 140
@@ -46,11 +46,24 @@ export class SpawnManager {
         Phaser.Utils.Array.Shuffle(itemsToSpawn);
 
         itemsToSpawn.forEach(combo => {
-            const x = Phaser.Math.Between(250, 950);
-            const y = Phaser.Math.Between(50, 300);
+            let x, y, overlapping;
+            let attempts = 0;
+            const size = ITEM_SIZE;
+            
+            do {
+                x = Phaser.Math.Between(250, 950);
+                y = Phaser.Math.Between(100, 500); // More scattered vertical range
+                overlapping = obstacles.some(obs => {
+                    // Check if center (x,y) is within obstacle box + padding
+                    return x > obs.x - obs.width/2 - size/2 && 
+                           x < obs.x + obs.width/2 + size/2 &&
+                           y > obs.y - obs.height/2 - size/2 &&
+                           y < obs.y + obs.height/2 + size/2;
+                });
+                attempts++;
+            } while (overlapping && attempts < 10);
             
             let sprite;
-            const size = ITEM_SIZE;
 
             if (combo.shape === 'circle') {
                 sprite = this.scene.matter.add.sprite(x, y, 'shape_circle', null, { shape: { type: 'circle', radius: size / 2 } });
