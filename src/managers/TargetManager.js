@@ -6,54 +6,68 @@ export class TargetManager {
         this.scene = scene;
         this.targets = [];
         this.targetTexts = [];
-        this.targetUIGroups = [[], []];
+        this.targetUIGroups = [];
     }
 
-    selectNewTargets() {
+    selectNewTargets(pool, targetCount, totalGoal) {
         this.targets = [];
         
-        let availableValues = {
-            shape: [...SHAPES],
-            color: [...COLORS],
-            symbol: [...SYMBOLS]
-        };
+        // 1. Group pool by type
+        const buckets = { shape: [], color: [], symbol: [] };
+        pool.forEach(c => buckets[c.type].push(c.value));
         
-        Phaser.Utils.Array.Shuffle(availableValues.shape);
-        Phaser.Utils.Array.Shuffle(availableValues.color);
-        Phaser.Utils.Array.Shuffle(availableValues.symbol);
-
-        for (let i = 0; i < 2; i++) {
-            let types = ['shape', 'color', 'symbol'];
-            Phaser.Utils.Array.Shuffle(types);
-            let selectedTypes = types.slice(0, 2);
-            
-            let target = { 
+        // 2. Prepare targets and distribute goal
+        let remainingGoal = totalGoal;
+        for (let i = 0; i < targetCount; i++) {
+            const share = Math.ceil(remainingGoal / (targetCount - i));
+            this.targets.push({ 
                 found: 0, 
-                attributes: {},
-                requiredCount: 0 
-            };
-            
-            selectedTypes.forEach(type => {
-                target.attributes[type] = availableValues[type].pop();
+                attributes: {}, 
+                requiredCount: share 
             });
-            
-            this.targets.push(target);
+            remainingGoal -= share;
         }
+
+        // 3. Distribute characteristics from the pool
+        // Each target needs 2 unique types.
+        const typeNames = ['shape', 'color', 'symbol'];
+        
+        // We do passes to give each target a unique type from the pool
+        for (let pass = 0; pass < 2; pass++) {
+            this.targets.forEach(target => {
+                const shuffledTypes = Phaser.Utils.Array.Shuffle([...typeNames]);
+                for (const type of shuffledTypes) {
+                    if (buckets[type].length > 0 && !target.attributes[type]) {
+                        target.attributes[type] = buckets[type].pop();
+                        break; 
+                    }
+                }
+            });
+        }
+
+        // 4. Final sweep: Ensure all items in the pool are used if possible
+        this.targets.forEach(target => {
+            if (Object.keys(target.attributes).length < 2) {
+                for (const type of typeNames) {
+                    if (buckets[type].length > 0 && !target.attributes[type]) {
+                        target.attributes[type] = buckets[type].pop();
+                    }
+                }
+            }
+        });
     }
 
     checkMatch(sprite) {
-        // 1. Check for Perfect Match
         const perfectTarget = this.targets.find(t => {
-            return Object.entries(t.attributes).every(([key, val]) => 
-                sprite.getData(key) === val
-            );
+            const attrs = Object.entries(t.attributes);
+            if (attrs.length === 0) return false;
+            return attrs.every(([key, val]) => sprite.getData(key) === val);
         });
 
         if (perfectTarget) {
             return { type: 'perfect', target: perfectTarget };
         }
 
-        // 2. Check for Partial Match
         const isPartialMatch = this.targets.some(t => {
             return Object.entries(t.attributes).some(([key, val]) => 
                 sprite.getData(key) === val
@@ -69,7 +83,7 @@ export class TargetManager {
 
     createUI(panelWidth) {
         this.targetTexts = [];
-        this.targetUIGroups = [[], []];
+        this.targetUIGroups = [];
 
         this.scene.add.text(panelWidth / 2, 40, 'TARGETS', {
             font: 'bold 20px Arial',
@@ -77,9 +91,10 @@ export class TargetManager {
         }).setOrigin(0.5).setDepth(101);
 
         this.targets.forEach((target, index) => {
-            const y = 130 + (index * 130);
+            const y = 130 + (index * 120);
+            this.targetUIGroups[index] = [];
             
-            const header = this.scene.add.text(20, y - 65, `ITEM ${index + 1} ${target.found}/${target.requiredCount}`, {
+            const header = this.scene.add.text(20, y - 60, `ITEM ${index + 1} ${target.found}/${target.requiredCount}`, {
                 font: 'bold 14px Arial',
                 fill: '#888888'
             }).setDepth(101);
@@ -88,14 +103,21 @@ export class TargetManager {
             const iconBg = this.scene.add.graphics();
             iconBg.setDepth(100);
             iconBg.fillStyle(0xffffff, 0.05);
-            iconBg.fillRoundedRect(15, y - 45, 170, 90, 12);
+            iconBg.fillRoundedRect(15, y - 40, 170, 80, 12);
             iconBg.lineStyle(1, 0xffffff, 0.1);
-            iconBg.strokeRoundedRect(15, y - 45, 170, 90, 12);
+            iconBg.strokeRoundedRect(15, y - 40, 170, 80, 12);
             this.targetUIGroups[index].push(iconBg);
 
             const attrTypes = Object.keys(target.attributes);
+            const count = attrTypes.length;
+            
             attrTypes.forEach((type, attrIndex) => {
-                const xPos = 60 + (attrIndex * 80);
+                // Centering logic
+                let xPos = 100;
+                if (count === 2) {
+                    xPos = (attrIndex === 0) ? 60 : 140;
+                }
+                
                 const val = target.attributes[type];
 
                 if (type === 'shape') {
@@ -144,7 +166,7 @@ export class TargetManager {
 
     incrementFound(target) {
         if (target) {
-            target.found = Math.min(target.found + 1, target.requiredCount || 99);
+            target.found = Math.min(target.found + 1, target.requiredCount);
             this.updateUI();
         }
     }

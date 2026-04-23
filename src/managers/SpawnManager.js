@@ -1,28 +1,24 @@
 import * as Phaser from 'phaser';
-import { SHAPES, COLORS, SYMBOLS, ITEM_COUNT, ITEM_SIZE } from '../constants.js';
+import { SHAPES, COLORS, SYMBOLS, INITIAL_ITEM_COUNT, ITEM_SIZE } from '../constants.js';
 
 export class SpawnManager {
     constructor(scene) {
         this.scene = scene;
     }
 
-    spawnItems(targets, unlockGoal) {
+    spawnItems(targets, unlockGoal, level) {
         let itemsToSpawn = [];
         
-        // Ensure sufficient target instances (sum >= unlockGoal)
-        let totalTargetInstances = 0;
-        targets.forEach((target, index) => {
-            let targetCount = Phaser.Math.Between(2, 6);
-            
-            if (index === targets.length - 1 && totalTargetInstances + targetCount < unlockGoal) {
-                targetCount = unlockGoal - totalTargetInstances;
-            }
-            
-            target.requiredCount = targetCount;
-            totalTargetInstances += targetCount;
+        // Density for 60px items: 30, 60, 100, 140
+        const densityMap = [30, 60, 100, 140];
+        const totalCount = densityMap[level - 1] || 140;
 
+        // Use targets already set by TargetManager
+        targets.forEach((target) => {
+            const targetCount = target.requiredCount;
             for (let i = 0; i < targetCount; i++) {
                 let item = { ...target.attributes };
+                // Fill missing attributes if any
                 if (!item.shape) item.shape = Phaser.Utils.Array.GetRandom(SHAPES);
                 if (!item.color) item.color = Phaser.Utils.Array.GetRandom(COLORS);
                 if (!item.symbol) item.symbol = Phaser.Utils.Array.GetRandom(SYMBOLS);
@@ -31,7 +27,7 @@ export class SpawnManager {
         });
 
         // Fill the rest with non-matching items
-        while (itemsToSpawn.length < ITEM_COUNT) {
+        while (itemsToSpawn.length < totalCount) {
             let item = {
                 shape: Phaser.Utils.Array.GetRandom(SHAPES),
                 color: Phaser.Utils.Array.GetRandom(COLORS),
