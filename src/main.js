@@ -248,8 +248,10 @@ class ExampleScene extends Phaser.Scene {
         }).setOrigin(0.5).setDepth(1002);
 
         // Make button interactive
-        retryText.setInteractive({ useHandCursor: true });
-        retryText.on('pointerdown', () => {
+        const retryHitArea = new Phaser.Geom.Rectangle(500, 350, 200, 60);
+        btnBg.setInteractive(retryHitArea, Phaser.Geom.Rectangle.Contains);
+        btnBg.setCursor('pointer');
+        btnBg.on('pointerdown', () => {
             this.scene.restart();
         });
     }
@@ -449,8 +451,10 @@ class ExampleScene extends Phaser.Scene {
         this.nextLevelProgress.setStyle({ fill: '#2ed573' });
 
         // Make interactive
-        this.nextLevelText.setInteractive({ useHandCursor: true });
-        this.nextLevelText.on('pointerdown', () => {
+        const nextLevelHitArea = new Phaser.Geom.Rectangle(this.nextLevelText.x - 80, this.nextLevelText.y - 25, 160, 50);
+        this.nextLevelBtnBg.setInteractive(nextLevelHitArea, Phaser.Geom.Rectangle.Contains);
+        this.nextLevelBtnBg.setCursor('pointer');
+        this.nextLevelBtnBg.on('pointerdown', () => {
             this.scene.restart();
         });
 
