@@ -146,6 +146,10 @@ class ExampleScene extends Phaser.Scene {
                     if (clickedBody) {
                         const spriteToDestroy = clickedBody.gameObject;
                         
+                        // Prevent duplicate pops on the same sprite
+                        if (spriteToDestroy.getData('popping')) return;
+                        spriteToDestroy.setData('popping', true);
+                        
                         // 1. Check for Perfect Match (All required attributes)
                         const perfectTarget = this.targets.find(t => {
                             return Object.entries(t.attributes).every(([key, val]) => 
