@@ -1,428 +1,164 @@
 import * as Phaser from 'phaser';
+import { ScoreManager } from './managers/ScoreManager.js';
+import { HealthManager } from './managers/HealthManager.js';
+import { TargetManager } from './managers/TargetManager.js';
+import { SpawnManager } from './managers/SpawnManager.js';
+import { 
+    GAME_WIDTH, GAME_HEIGHT, 
+    BOX_X_START, BOX_X_END, 
+    UNLOCK_GOAL 
+} from './constants.js';
 
 class ExampleScene extends Phaser.Scene {
     constructor() {
         super();
-        this.colors = [0x00ffff, 0xff00ff, 0xffff00, 0x00ff00]; // Cyan, Magenta, Yellow, Lime
-        this.shapes = ['circle', 'square', 'triangle', 'hexagon'];
-        this.symbols = ['+', '?', '%', '@'];
-    }
-
-    preload() {
-        // We will generate the textures in create() to avoid loading external assets
+        this.nextLevelButtonEnabled = false;
     }
 
     create() {
-        // Initialize/Reset game state
-        this.targets = [];
-        this.score = 0;
-        this.sanity = 5;
-        this.popsCount = 0; // Total pops (correct or partial)
+        // Initialize State
         this.isGameOver = false;
+        this.popsCount = 0;
+        this.unlockGoal = UNLOCK_GOAL;
+        this.nextLevelButtonEnabled = false;
 
-        // Set up the scene background
+        // Set up Physics
         this.cameras.main.setBackgroundColor('#111111');
-
-        // Set world bounds to cover the entire canvas, but we will use manual walls for the game box
-        this.matter.world.setBounds(0, 0, 1200, 600, 100, true, true, true, true);
+        this.matter.world.setBounds(0, 0, GAME_WIDTH, GAME_HEIGHT, 100, true, true, true, true);
         
-        // Manual Game Box Walls (centered at x=200 to 1000)
         const wallThickness = 50;
-        // Left Wall at x=200
-        this.matter.add.rectangle(200 - wallThickness/2, 300, wallThickness, 600, { isStatic: true });
-        // Right Wall at x=1000
-        this.matter.add.rectangle(1000 + wallThickness/2, 300, wallThickness, 600, { isStatic: true });
-        // Bottom Wall
+        this.matter.add.rectangle(BOX_X_START - wallThickness/2, 300, wallThickness, 600, { isStatic: true });
+        this.matter.add.rectangle(BOX_X_END + wallThickness/2, 300, wallThickness, 600, { isStatic: true });
         this.matter.add.rectangle(600, 600 + wallThickness/2, 800, wallThickness, { isStatic: true });
-        // Top Wall
         this.matter.add.rectangle(600, 0 - wallThickness/2, 800, wallThickness, { isStatic: true });
 
-        // Generate graphics textures for our shapes
         this.generateTextures();
         
-        // Select 2 random targets
-        this.selectNewTargets();
+        // Initialize Managers
+        this.targetManager = new TargetManager(this);
+        this.scoreManager = new ScoreManager(this, 1100, 150);
+        this.healthManager = new HealthManager(this, 1050, 60);
+        this.spawnManager = new SpawnManager(this);
 
-        // Create UI Panels
-        this.createLeftUI();
-        this.createRightUI();
+        this.targetManager.selectNewTargets();
+        this.targetManager.createUI(200);
+        this.spawnManager.spawnItems(this.targetManager.targets, this.unlockGoal);
 
-        // Draw visible bounding box border
+        // UI Setup
+        this.createUIPanels();
+        this.createNextLevelButton(1100, 550);
+
         const border = this.add.graphics();
         border.lineStyle(6, 0x333333);
         border.strokeRect(200, 0, 800, 600);
 
-        // Generate 64 items
-        let itemsToSpawn = [];
+        this.updateUI();
+
+        // Input
+        this.input.on('pointerdown', this.handlePointerDown, this);
+    }
+
+    createUIPanels() {
+        const leftPanel = this.add.graphics();
+        leftPanel.setDepth(100);
+        leftPanel.fillStyle(0x1a1a1a, 1);
+        leftPanel.fillRect(0, 0, 200, 600);
+        leftPanel.lineStyle(2, 0xffffff, 0.2);
+        leftPanel.strokeRect(198, 0, 2, 600);
+
+        const rightPanel = this.add.graphics();
+        rightPanel.setDepth(100);
+        rightPanel.fillStyle(0x1a1a1a, 1);
+        rightPanel.fillRect(1000, 0, 200, 600);
+        rightPanel.lineStyle(2, 0xffffff, 0.2);
+        rightPanel.strokeRect(1000, 0, 2, 600);
+    }
+
+    handlePointerDown(pointer) {
+        if (this.isGameOver) return;
         
-        // Ensure 2-6 instances of each target
-        this.targets.forEach(target => {
-            const targetCount = Phaser.Math.Between(2, 6);
-            target.requiredCount = targetCount; // Set the count
-            for (let i = 0; i < targetCount; i++) {
-                let item = { ...target.attributes };
-                // Fill missing attributes with random values
-                if (!item.shape) item.shape = Phaser.Utils.Array.GetRandom(this.shapes);
-                if (!item.color) item.color = Phaser.Utils.Array.GetRandom(this.colors);
-                if (!item.symbol) item.symbol = Phaser.Utils.Array.GetRandom(this.symbols);
-                itemsToSpawn.push(item);
-            }
-        });
+        const bodiesUnderPointer = this.matter.query.point(this.matter.world.localWorld.bodies, { x: pointer.x, y: pointer.y });
+        const clickedBody = bodiesUnderPointer.find(b => b.gameObject);
+        
+        if (clickedBody) {
+            const sprite = clickedBody.gameObject;
+            if (sprite.getData('popping')) return;
 
-        // Fill the rest with non-matching items
-        while (itemsToSpawn.length < 64) {
-            let item = {
-                shape: Phaser.Utils.Array.GetRandom(this.shapes),
-                color: Phaser.Utils.Array.GetRandom(this.colors),
-                symbol: Phaser.Utils.Array.GetRandom(this.symbols)
-            };
-            
-            // Check if it accidentally matches any target
-            const isMatch = this.targets.some(target => {
-                return Object.entries(target.attributes).every(([key, val]) => item[key] === val);
-            });
-            
-            if (!isMatch) {
-                itemsToSpawn.push(item);
+            const match = this.targetManager.checkMatch(sprite);
+
+            if (match.type === 'perfect') {
+                this.targetManager.incrementFound(match.target);
+                this.handlePop(sprite, 100, 0);
+            } else if (match.type === 'partial') {
+                this.handlePop(sprite, 50, 1);
             }
         }
-
-        // Shuffle items
-        Phaser.Utils.Array.Shuffle(itemsToSpawn);
-
-        // Spawn them mid-air at random positions
-        itemsToSpawn.forEach(combo => {
-            const x = Phaser.Math.Between(250, 950);
-            const y = Phaser.Math.Between(50, 300);
-            
-            let sprite;
-            const size = 60; // Size of the shape
-
-            if (combo.shape === 'circle') {
-                sprite = this.matter.add.sprite(x, y, 'shape_circle', null, { shape: { type: 'circle', radius: size / 2 } });
-            } else if (combo.shape === 'square') {
-                sprite = this.matter.add.sprite(x, y, 'shape_square', null, { shape: { type: 'rectangle', width: size, height: size } });
-            } else if (combo.shape === 'triangle') {
-                const poly = '30 -10 60 50 0 50';
-                sprite = this.matter.add.sprite(x, y, 'shape_triangle', null, { shape: { type: 'fromVerts', verts: poly, flagInternal: true } });
-            } else if (combo.shape === 'hexagon') {
-                const poly = '52 17 52 43 30 56 8 43 8 17 30 4';
-                sprite = this.matter.add.sprite(x, y, 'shape_hexagon', null, { shape: { type: 'fromVerts', verts: poly, flagInternal: true } });
-            }
-
-            // Set visual properties
-            sprite.setTint(combo.color);
-            sprite.setBounce(0.6);
-            sprite.setFrictionAir(0.01);
-            sprite.setFriction(0.05);
-            
-            // Store custom data for target matching
-            sprite.setData('shape', combo.shape);
-            sprite.setData('color', combo.color);
-            sprite.setData('symbol', combo.symbol);
-            
-            // Add symbol text in the center of the shape
-            const symbolText = this.add.text(0, 0, combo.symbol, {
-                font: 'bold 24px Arial',
-                fill: '#ffffff'
-            }).setOrigin(0.5);
-            symbolText.setTint(combo.color);
-            sprite.setData('symbolText', symbolText);
-            
-            // Random initial rotation
-            sprite.setAngle(Phaser.Math.Between(0, 360));
-        });
-
-        // Setup input to pop objects
-        this.input.on('pointerdown', (pointer) => {
-            if (this.isGameOver) return;
-            
-            // Find all matter bodies under the pointer
-            const bodiesUnderPointer = this.matter.query.point(this.matter.world.localWorld.bodies, { x: pointer.x, y: pointer.y });
-            
-            if (bodiesUnderPointer.length > 0) {
-                // Get the first body that belongs to a sprite
-                const clickedBody = bodiesUnderPointer.find(b => b.gameObject);
-                    if (clickedBody) {
-                        const spriteToDestroy = clickedBody.gameObject;
-                        
-                        // Prevent duplicate pops on the same sprite
-                        if (spriteToDestroy.getData('popping')) return;
-                        spriteToDestroy.setData('popping', true);
-                        
-                        // 1. Check for Perfect Match (All required attributes)
-                        const perfectTarget = this.targets.find(t => {
-                            return Object.entries(t.attributes).every(([key, val]) => 
-                                spriteToDestroy.getData(key) === val
-                            );
-                        });
-
-                        if (perfectTarget) {
-                            this.handlePop(spriteToDestroy, 100, 0, perfectTarget);
-                            return;
-                        }
-
-                        // 2. Check for Partial Match (At least one attribute from any target)
-                        const isPartialMatch = this.targets.some(t => {
-                            return Object.entries(t.attributes).some(([key, val]) => 
-                                spriteToDestroy.getData(key) === val
-                            );
-                        });
-
-                        if (isPartialMatch && this.sanity > 0) {
-                            this.handlePop(spriteToDestroy, 50, 1, null);
-                        }
-                    }
-                }
-        });
     }
 
-    update() {
-        // Sync symbol text with sprites
-        this.children.list.forEach(child => {
-            if (child.getData && child.getData('symbolText')) {
-                const text = child.getData('symbolText');
-                text.x = child.x;
-                text.y = child.y;
-                text.rotation = child.rotation;
-            }
-        });
-    }
+    handlePop(sprite, points, damage) {
+        if (this.isGameOver || !sprite || !sprite.active) return;
 
-    handlePop(sprite, points, damage, target) {
-        // Visual Damage Feedback
-        if (damage > 0) {
-            this.cameras.main.shake(200, 0.02);
-            this.cameras.main.flash(200, 0xff0000, 0.3);
-            this.sanity = Math.max(0, this.sanity - damage);
+        sprite.setData('popping', true);
+        if (sprite.body) {
+            sprite.setStatic(true);
+            this.matter.world.remove(sprite.body);
         }
 
-        this.score += points;
-        this.popsCount++; // Increment total pops
-        if (target) target.found = Math.min(target.found + 1, target.requiredCount);
+        if (damage > 0) this.healthManager.damage(damage);
+        this.scoreManager.addPoints(points);
+        this.popsCount++;
+
+        this.updateUI();
 
         const symbolText = sprite.getData('symbolText');
-        const targets = [sprite];
-        if (symbolText) targets.push(symbolText);
+        const tweenTargets = [sprite];
+        if (symbolText && symbolText.active) tweenTargets.push(symbolText);
 
         this.tweens.add({
-            targets: targets,
+            targets: tweenTargets,
             scaleX: 1.5,
             scaleY: 1.5,
             alpha: 0,
             duration: 150,
             onComplete: () => {
-                sprite.destroy();
-                if (symbolText) symbolText.destroy();
-                this.updateUI();
-
-                if (this.sanity <= 0 && !this.isGameOver) {
-                    this.showGameOver();
-                }
+                if (symbolText && symbolText.active) symbolText.destroy();
+                if (sprite && sprite.active) sprite.destroy();
             }
         });
     }
 
-    showGameOver() {
-        this.isGameOver = true;
-        
-        // Dark Overlay
-        const overlay = this.add.graphics();
-        overlay.fillStyle(0x000000, 0.8);
-        overlay.fillRect(0, 0, 1200, 600);
-        overlay.setDepth(1000);
-
-        // Game Over Text
-        this.add.text(600, 250, 'GAME OVER', {
-            font: 'bold 64px Arial',
-            fill: '#ff4757'
-        }).setOrigin(0.5).setDepth(1001);
-
-        // Retry Button
-        const btnBg = this.add.graphics();
-        btnBg.fillStyle(0x2f3542, 1);
-        btnBg.fillRoundedRect(500, 350, 200, 60, 10);
-        btnBg.lineStyle(2, 0xffffff, 0.5);
-        btnBg.strokeRoundedRect(500, 350, 200, 60, 10);
-        btnBg.setDepth(1001);
-
-        const retryText = this.add.text(600, 380, 'RETRY', {
-            font: 'bold 24px Arial',
-            fill: '#ffffff'
-        }).setOrigin(0.5).setDepth(1002);
-
-        // Make button interactive
-        const retryHitArea = new Phaser.Geom.Rectangle(500, 350, 200, 60);
-        btnBg.setInteractive(retryHitArea, Phaser.Geom.Rectangle.Contains);
-        btnBg.setCursor('pointer');
-        btnBg.on('pointerdown', () => {
-            this.scene.restart();
+    update() {
+        const children = this.children.list.slice();
+        children.forEach(child => {
+            if (child.active && child.getData && child.getData('symbolText') && !child.getData('popping')) {
+                const text = child.getData('symbolText');
+                if (text && text.active) {
+                    text.x = child.x;
+                    text.y = child.y;
+                    text.rotation = child.rotation;
+                }
+            }
         });
     }
 
     updateUI() {
-        // Update Left UI
-        this.targetTexts.forEach((textObj, index) => {
-            const target = this.targets[index];
-            const isComplete = target.found === target.requiredCount;
-            
-            textObj.setText(`ITEM ${index + 1} ${target.found}/${target.requiredCount} ${isComplete ? '✔' : ''}`);
-            if (isComplete) {
-                textObj.setColor('#2ed573'); // Green
-                this.targetUIGroups[index].forEach(obj => obj.setAlpha(0.4));
-                textObj.setAlpha(0.4);
-            }
-        });
-
-        // Update Right UI
-        this.scoreText.setText(`SCORE: ${this.score}`);
-        this.sanityText.setText(`${this.sanity}/5`);
+        if (this.targetManager) this.targetManager.updateUI();
+        if (this.scoreManager) this.scoreManager.updateUI();
+        if (this.healthManager) this.healthManager.updateUI();
 
         // Update Next Level Button
-        if (this.popsCount >= 5 && !this.nextLevelButtonEnabled) {
+        const canUnlock = this.popsCount >= this.unlockGoal;
+
+        if (canUnlock && !this.nextLevelButtonEnabled) {
             this.enableNextLevelButton();
-        } else if (!this.nextLevelButtonEnabled) {
-            this.nextLevelProgress.setText(`UNLOCK: ${this.popsCount}/5`);
+        } else if (!this.nextLevelButtonEnabled && this.nextLevelProgress) {
+            this.nextLevelProgress.setText(`UNLOCK: ${this.popsCount}/${this.unlockGoal}`);
         }
-    }
-
-    selectNewTargets() {
-        this.targets = [];
-        
-        let availableValues = {
-            shape: [...this.shapes],
-            color: [...this.colors],
-            symbol: [...this.symbols]
-        };
-        
-        // Shuffle values to ensure uniqueness
-        Phaser.Utils.Array.Shuffle(availableValues.shape);
-        Phaser.Utils.Array.Shuffle(availableValues.color);
-        Phaser.Utils.Array.Shuffle(availableValues.symbol);
-
-        for (let i = 0; i < 2; i++) {
-            // Pick 2 random attribute types
-            let types = ['shape', 'color', 'symbol'];
-            Phaser.Utils.Array.Shuffle(types);
-            let selectedTypes = types.slice(0, 2);
-            
-            let target = { 
-                found: 0, 
-                attributes: {},
-                requiredCount: 0 // Will be set during spawn to match actual count
-            };
-            
-            selectedTypes.forEach(type => {
-                target.attributes[type] = availableValues[type].pop();
-            });
-            
-            this.targets.push(target);
-        }
-    }
-
-    createLeftUI() {
-        const panelWidth = 200;
-        const panel = this.add.graphics();
-        panel.setDepth(100);
-        this.targetTexts = []; // To keep track of text for updates
-        this.targetUIGroups = [[], []]; // To keep track of card elements for alpha
-        
-        // Opaque Dark background for UI
-        panel.fillStyle(0x1a1a1a, 1);
-        panel.fillRect(0, 0, panelWidth, 600);
-        panel.lineStyle(2, 0xffffff, 0.2);
-        panel.strokeRect(panelWidth - 2, 0, 2, 600);
-
-        this.add.text(panelWidth / 2, 40, 'TARGETS', {
-            font: 'bold 20px Arial',
-            fill: '#ffffff'
-        }).setOrigin(0.5).setDepth(101);
-
-        // Display the two targets
-        this.targets.forEach((target, index) => {
-            const y = 130 + (index * 130);
-            
-            // Header: ITEM X 0/Y
-            const header = this.add.text(20, y - 65, `ITEM ${index + 1} ${target.found}/${target.requiredCount}`, {
-                font: 'bold 14px Arial',
-                fill: '#888888'
-            }).setDepth(101);
-            this.targetTexts.push(header);
-
-            // Icon Background
-            const iconBg = this.add.graphics();
-            iconBg.setDepth(100);
-            iconBg.fillStyle(0xffffff, 0.05);
-            iconBg.fillRoundedRect(15, y - 45, 170, 90, 12);
-            iconBg.lineStyle(1, 0xffffff, 0.1);
-            iconBg.strokeRoundedRect(15, y - 45, 170, 90, 12);
-            this.targetUIGroups[index].push(iconBg);
-
-            // Display the 2 required attributes
-            const attrTypes = Object.keys(target.attributes);
-            attrTypes.forEach((type, attrIndex) => {
-                const xPos = 60 + (attrIndex * 80);
-                const val = target.attributes[type];
-
-                if (type === 'shape') {
-                    const icon = this.add.image(xPos, y, `shape_${val}`);
-                    icon.setScale(0.5);
-                    icon.setDepth(101);
-                    this.targetUIGroups[index].push(icon);
-                } else if (type === 'color') {
-                    const colorSwatch = this.add.graphics();
-                    colorSwatch.setDepth(101);
-                    colorSwatch.fillStyle(val, 1);
-                    colorSwatch.fillRoundedRect(xPos - 20, y - 20, 40, 40, 8);
-                    colorSwatch.lineStyle(2, 0xffffff, 0.3);
-                    colorSwatch.strokeRoundedRect(xPos - 20, y - 20, 40, 40, 8);
-                    this.targetUIGroups[index].push(colorSwatch);
-                } else if (type === 'symbol') {
-                    const symbolTxt = this.add.text(xPos, y, val, {
-                        font: 'bold 32px Arial',
-                        fill: '#ffffff'
-                    }).setOrigin(0.5).setDepth(101);
-                    this.targetUIGroups[index].push(symbolTxt);
-                }
-            });
-        });
-    }
-
-    createRightUI() {
-        const xStart = 1000;
-        const panelWidth = 200;
-        const panel = this.add.graphics();
-        panel.setDepth(100);
-        
-        // Opaque Dark background for UI
-        panel.fillStyle(0x1a1a1a, 1);
-        panel.fillRect(xStart, 0, panelWidth, 600);
-        panel.lineStyle(2, 0xffffff, 0.2);
-        panel.strokeRect(xStart, 0, 2, 600);
-
-        // 1. Sanity Tracker (Brain)
-        this.drawBrainIcon(xStart + 50, 60);
-        this.sanityText = this.add.text(xStart + 110, 60, `${this.sanity}/5`, {
-            font: 'bold 24px Arial',
-            fill: '#ff4757'
-        }).setOrigin(0, 0.5).setDepth(101);
-
-        // 2. Score Tracker
-        this.scoreText = this.add.text(xStart + 100, 150, `SCORE: ${this.score}`, {
-            font: 'bold 20px Arial',
-            fill: '#ffffff'
-        }).setOrigin(0.5).setDepth(101);
-
-        // 3. Next Level Button (Bottom Right)
-        this.createNextLevelButton(xStart + 100, 550);
     }
 
     createNextLevelButton(x, y) {
         this.nextLevelButtonEnabled = false;
-
-        // Button Background
-        this.nextLevelBtnBg = this.add.graphics();
-        this.nextLevelBtnBg.setDepth(101);
+        this.nextLevelBtnBg = this.add.graphics().setDepth(101);
         this.nextLevelBtnBg.fillStyle(0x333333, 1);
         this.nextLevelBtnBg.fillRoundedRect(x - 80, y - 25, 160, 50, 10);
         this.nextLevelBtnBg.lineStyle(2, 0xffffff, 0.2);
@@ -433,8 +169,7 @@ class ExampleScene extends Phaser.Scene {
             fill: '#666666'
         }).setOrigin(0.5).setDepth(102);
 
-        // Add progress text
-        this.nextLevelProgress = this.add.text(x, y - 45, `UNLOCK: ${this.popsCount}/5`, {
+        this.nextLevelProgress = this.add.text(x, y - 45, `UNLOCK: ${this.popsCount}/${this.unlockGoal}`, {
             font: '14px Arial',
             fill: '#888888'
         }).setOrigin(0.5).setDepth(102);
@@ -442,10 +177,8 @@ class ExampleScene extends Phaser.Scene {
 
     enableNextLevelButton() {
         this.nextLevelButtonEnabled = true;
-        
-        // Update appearance
         this.nextLevelBtnBg.clear();
-        this.nextLevelBtnBg.fillStyle(0x2ed573, 1); // Bright green
+        this.nextLevelBtnBg.fillStyle(0x2ed573, 1);
         this.nextLevelBtnBg.fillRoundedRect(this.nextLevelText.x - 80, this.nextLevelText.y - 25, 160, 50, 10);
         this.nextLevelBtnBg.lineStyle(2, 0xffffff, 0.5);
         this.nextLevelBtnBg.strokeRoundedRect(this.nextLevelText.x - 80, this.nextLevelText.y - 25, 160, 50, 10);
@@ -454,15 +187,11 @@ class ExampleScene extends Phaser.Scene {
         this.nextLevelProgress.setText('READY!');
         this.nextLevelProgress.setStyle({ fill: '#2ed573' });
 
-        // Make interactive
         const nextLevelHitArea = new Phaser.Geom.Rectangle(this.nextLevelText.x - 80, this.nextLevelText.y - 25, 160, 50);
         this.nextLevelBtnBg.setInteractive(nextLevelHitArea, Phaser.Geom.Rectangle.Contains);
-        this.nextLevelBtnBg.setCursor('pointer');
-        this.nextLevelBtnBg.on('pointerdown', () => {
-            this.scene.restart();
-        });
+        if (this.nextLevelBtnBg.input) this.nextLevelBtnBg.input.cursor = 'pointer';
+        this.nextLevelBtnBg.on('pointerdown', () => this.scene.restart());
 
-        // Little bounce animation to catch the eye
         this.tweens.add({
             targets: [this.nextLevelBtnBg, this.nextLevelText, this.nextLevelProgress],
             y: '-=5',
@@ -472,23 +201,32 @@ class ExampleScene extends Phaser.Scene {
         });
     }
 
-    drawBrainIcon(x, y) {
-        const brain = this.add.graphics();
-        brain.setDepth(101);
-        brain.fillStyle(0xff7f7f, 1);
-        
-        // Simple stylized brain using circles
-        brain.fillCircle(x - 10, y - 8, 12); // Left top
-        brain.fillCircle(x + 10, y - 8, 12); // Right top
-        brain.fillCircle(x - 12, y + 5, 12); // Left bottom
-        brain.fillCircle(x + 12, y + 5, 12); // Right bottom
-        
-        // Brain details (subtle lines)
-        brain.lineStyle(2, 0x000000, 0.2);
-        brain.beginPath();
-        brain.moveTo(x, y - 15);
-        brain.lineTo(x, y + 15);
-        brain.strokePath();
+    showGameOver() {
+        this.isGameOver = true;
+        const overlay = this.add.graphics().setDepth(1000);
+        overlay.fillStyle(0x000000, 0.8);
+        overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+        this.add.text(GAME_WIDTH / 2, 250, 'GAME OVER', {
+            font: 'bold 64px Arial',
+            fill: '#ff4757'
+        }).setOrigin(0.5).setDepth(1001);
+
+        const btnBg = this.add.graphics().setDepth(1001);
+        btnBg.fillStyle(0x2f3542, 1);
+        btnBg.fillRoundedRect(GAME_WIDTH / 2 - 100, 350, 200, 60, 10);
+        btnBg.lineStyle(2, 0xffffff, 0.5);
+        btnBg.strokeRoundedRect(GAME_WIDTH / 2 - 100, 350, 200, 60, 10);
+
+        this.add.text(GAME_WIDTH / 2, 380, 'RETRY', {
+            font: 'bold 24px Arial',
+            fill: '#ffffff'
+        }).setOrigin(0.5).setDepth(1002);
+
+        const retryHitArea = new Phaser.Geom.Rectangle(GAME_WIDTH / 2 - 100, 350, 200, 60);
+        btnBg.setInteractive(retryHitArea, Phaser.Geom.Rectangle.Contains);
+        if (btnBg.input) btnBg.input.cursor = 'pointer';
+        btnBg.on('pointerdown', () => this.scene.restart());
     }
 
     generateTextures() {
@@ -497,38 +235,36 @@ class ExampleScene extends Phaser.Scene {
         const size = 60;
         const halfSize = size / 2;
 
-        // 1. Circle
+        // Circle
         graphics.clear();
         graphics.lineStyle(lineThickness, 0xffffff);
         graphics.strokeCircle(halfSize, halfSize, halfSize - lineThickness);
         graphics.generateTexture('shape_circle', size, size);
 
-        // 2. Square
+        // Square
         graphics.clear();
         graphics.lineStyle(lineThickness, 0xffffff);
         graphics.strokeRect(lineThickness/2, lineThickness/2, size - lineThickness, size - lineThickness);
         graphics.generateTexture('shape_square', size, size);
 
-        // 3. Triangle (Equilateral-ish)
+        // Triangle
         graphics.clear();
         graphics.lineStyle(lineThickness, 0xffffff);
         graphics.beginPath();
-        graphics.moveTo(halfSize, lineThickness); // Top
-        graphics.lineTo(size - lineThickness, size - lineThickness); // Bottom Right
-        graphics.lineTo(lineThickness, size - lineThickness); // Bottom Left
+        graphics.moveTo(halfSize, lineThickness);
+        graphics.lineTo(size - lineThickness, size - lineThickness);
+        graphics.lineTo(lineThickness, size - lineThickness);
         graphics.closePath();
         graphics.strokePath();
         graphics.generateTexture('shape_triangle', size, size);
 
-        // 4. Hexagon
+        // Hexagon
         graphics.clear();
         graphics.lineStyle(lineThickness, 0xffffff);
         graphics.beginPath();
-        // Pointy topped hexagon
         const hexRadius = size / 2 - lineThickness;
         for (let i = 0; i < 6; i++) {
-            const angle_deg = 60 * i - 30;
-            const angle_rad = Math.PI / 180 * angle_deg;
+            const angle_rad = Math.PI / 180 * (60 * i - 30);
             const x = halfSize + hexRadius * Math.cos(angle_rad);
             const y = halfSize + hexRadius * Math.sin(angle_rad);
             if (i === 0) graphics.moveTo(x, y);
@@ -537,22 +273,20 @@ class ExampleScene extends Phaser.Scene {
         graphics.closePath();
         graphics.strokePath();
         graphics.generateTexture('shape_hexagon', size, size);
-
-        // Cleanup graphics object
         graphics.destroy();
     }
 }
 
 const config = {
     type: Phaser.AUTO,
-    width: 1200,
-    height: 600,
+    width: GAME_WIDTH,
+    height: GAME_HEIGHT,
     parent: 'game-container',
     physics: {
         default: 'matter',
         matter: {
             gravity: { y: 1 },
-            debug: false // Turned off to prevent visual overlap
+            debug: false
         }
     },
     scene: ExampleScene
